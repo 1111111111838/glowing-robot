@@ -19,22 +19,34 @@ jobs:
           IMAGE_URL="${{ github.event.inputs.image_url }}"
           WEBHOOK_URL="${{ github.event.inputs.webhook_url }}"
 
-          # 1. הורדת התמונה והמרה ל-Base64
-          FULL_BASE64=$(curl -sL "$IMAGE_URL" | base64 -w 0)
+          # 1. הורדת התמונה והמרה ל-Base64 תוך שמירה לקובץ
+          curl -sL "$IMAGE_URL" | base64 -w 0 > full_base64.txt
 
-          # 2. חישוב נקודת האמצע והפרדה לשני חלקים
-          LEN=${#FULL_BASE64}
+          # 2. חישוב גודל הקובץ ונקודת החלוקה
+          LEN=$(stat -c%s full_base64.txt)
           HALF=$(( (LEN + 1) / 2 ))
 
-          PART1="${FULL_BASE64:0:$HALF}"
-          PART2="${FULL_BASE64:$HALF}"
+          # 3. פיצול הקובץ לשני חלקים שווים
+          head -c $HALF full_base64.txt > part1_raw.txt
+          tail -c +$((HALF + 1)) full_base64.txt > part2_raw.txt
 
-          # 3. שליחת חלק 1
+          # 4. יצירת קבצי JSON לשליחה
+          echo -n '{"part": 1, "total_parts": 2, "data": "' > payload1.json
+          cat part1_raw.txt >> payload1.json
+          echo -n '"}' >> payload1.json
+
+          echo -n '{"part": 2, "total_parts": 2, "data": "' > payload2.json
+          cat part2_raw.txt >> payload2.json
+          echo -n '"}' >> payload2.json
+
+          # 5. שליחת החלקים מתוך הקבצים לקבלת מהירות מירבית
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
-            -d "{\"part\": 1, \"total_parts\": 2, \"data\": \"$PART1\"}"
+            -d @payload1.json
 
-          # 4. שליחת חלק 2
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
-            -d "{\"part\": 2, \"total_parts\": 2, \"data\": \"$PART2\"}"
+            -d @payload2.json
+
+          # 6. ניקוי קבצים זמניים
+          rm full_base64.txt part1_raw.txt part2_raw.txt payload1.json payload2.json

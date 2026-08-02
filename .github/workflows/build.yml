@@ -1,4 +1,4 @@
-name: Process Image URL
+name: Process and Send Split Base64
 
 on:
   workflow_dispatch:
@@ -6,17 +6,35 @@ on:
       image_url:
         description: 'URL of the image'
         required: true
+      webhook_url:
+        description: 'Webhook Endpoint URL'
+        required: true
 
 jobs:
-  convert:
+  split-and-send:
     runs-on: ubuntu-latest
     steps:
-      - name: Download and encode image
+      - name: Download Image, Encode, Split and Send
         run: |
-          curl -sL "${{ github.event.inputs.image_url }}" | base64 -w 0 > base64_image.txt
+          IMAGE_URL="${{ github.event.inputs.image_url }}"
+          WEBHOOK_URL="${{ github.event.inputs.webhook_url }}"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: base64-result
-          path: base64_image.txt
+          # 1. הורדת התמונה והמרה ל-Base64
+          FULL_BASE64=$(curl -sL "$IMAGE_URL" | base64 -w 0)
+
+          # 2. חישוב נקודת האמצע והפרדה לשני חלקים
+          LEN=${#FULL_BASE64}
+          HALF=$(( (LEN + 1) / 2 ))
+
+          PART1="${FULL_BASE64:0:$HALF}"
+          PART2="${FULL_BASE64:$HALF}"
+
+          # 3. שליחת חלק 1
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"part\": 1, \"total_parts\": 2, \"data\": \"$PART1\"}"
+
+          # 4. שליחת חלק 2
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"part\": 2, \"total_parts\": 2, \"data\": \"$PART2\"}"

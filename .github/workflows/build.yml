@@ -1,0 +1,31 @@
+name: Convert Image URL to Base64 Artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_url:
+        description: 'הכנס את הקישור לתמונה'
+        required: true
+        type: string
+
+jobs:
+  convert-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Image and Convert to Base64
+        run: |
+          # הורדת התמונה והמרתה ל-Base64 בקובץ טקסט
+          curl -sL "${{ github.event.inputs.image_url }}" | base64 -w 0 > base64_image.txt
+          
+          # בדיקה שהקובץ נוצר ולא ריק
+          if [ ! -s base64_image.txt ]; then
+            echo "שגיאה: הורדת התמונה נכשלה או שהקובץ ריק."
+            exit 1
+          fi
+
+      - name: Upload Base64 Text as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: base64-result
+          path: base64_image.txt

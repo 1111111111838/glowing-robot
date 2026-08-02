@@ -14,39 +14,50 @@ jobs:
   split-and-send:
     runs-on: ubuntu-latest
     steps:
-      - name: Download Image, Encode, Split and Send
+      - name: Process Image and Send Parts via Python
+        shell: python
         run: |
-          IMAGE_URL="${{ github.event.inputs.image_url }}"
-          WEBHOOK_URL="${{ github.event.inputs.webhook_url }}"
+          import urllib.request
+          import base64
+          import json
+          import sys
 
-          # 1. הורדת התמונה והמרה ל-Base64 תוך שמירה לקובץ
-          curl -sL "$IMAGE_URL" | base64 -w 0 > full_base64.txt
+          image_url = "${{ github.event.inputs.image_url }}"
+          webhook_url = "${{ github.event.inputs.webhook_url }}"
 
-          # 2. חישוב גודל הקובץ ונקודת החלוקה
-          LEN=$(stat -c%s full_base64.txt)
-          HALF=$(( (LEN + 1) / 2 ))
+          print("Downloading image...")
+          req = urllib.request.Request(image_url, headers={'User-Agent': 'Mozilla/5.0'})
+          with urllib.request.urlopen(req) as response:
+              image_bytes = response.read()
 
-          # 3. פיצול הקובץ לשני חלקים שווים
-          head -c $HALF full_base64.txt > part1_raw.txt
-          tail -c +$((HALF + 1)) full_base64.txt > part2_raw.txt
+          print("Encoding to Base64...")
+          base64_str = base64.b64encode(image_bytes).decode('utf-8')
 
-          # 4. יצירת קבצי JSON לשליחה
-          echo -n '{"part": 1, "total_parts": 2, "data": "' > payload1.json
-          cat part1_raw.txt >> payload1.json
-          echo -n '"}' >> payload1.json
+          # חישוב נקודת חלוקה מדויקת
+          total_len = len(base64_str)
+          half_len = (total_len + 1) // 2
 
-          echo -n '{"part": 2, "total_parts": 2, "data": "' > payload2.json
-          cat part2_raw.txt >> payload2.json
-          echo -n '"}' >> payload2.json
+          part1 = base64_str[:half_len]
+          part2 = base64_str[half_len:]
 
-          # 5. שליחת החלקים מתוך הקבצים לקבלת מהירות מירבית
-          curl -X POST "$WEBHOOK_URL" \
-            -H "Content-Type: application/json" \
-            -d @payload1.json
+          print(f"Total Base64 length: {total_len}. Sending Part 1 ({len(part1)}) and Part 2 ({len(part2)})...")
 
-          curl -X POST "$WEBHOOK_URL" \
-            -H "Content-Type: application/json" \
-            -d @payload2.json
+          def send_part(part_num, part_data):
+              payload = json.dumps({
+                  "part": part_num,
+                  "total_parts": 2,
+                  "data": part_data
+              }).encode('utf-8')
+              
+              req = urllib.request.Request(
+                  webhook_url, 
+                  data=payload, 
+                  headers={'Content-Type': 'application/json'}
+              )
+              with urllib.request.urlopen(req) as resp:
+                  print(f"Part {part_num} sent successfully, status: {resp.status}")
 
-          # 6. ניקוי קבצים זמניים
-          rm full_base64.txt part1_raw.txt part2_raw.txt payload1.json payload2.json
+          # שליחת שני החלקים
+          send_part(1, part1)
+          send_part(2, part2)
+          print("Done!")

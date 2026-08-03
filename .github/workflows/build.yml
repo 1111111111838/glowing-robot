@@ -20,49 +20,40 @@ jobs:
   split-and-send:
     runs-on: ubuntu-latest
     steps:
-      - name: Process Image and Send Parts via Python
-        shell: python
+      - name: Download Image using curl and cookies file, then split and send via Python
         run: |
-          import urllib.request
-          import urllib.error
+          # 1. פענוח עוגיות הקנבה מ-Base64 וכתיבה לקובץ פיזי cookies.txt (אם קיימות)
+          if [ -n "${{ github.event.inputs.cookies_b64 }}" ]; then
+              echo "${{ github.event.inputs.cookies_b64 }}" | base64 --decode > cookies.txt
+          else
+              touch cookies.txt
+          fi
+
+          # 2. הורדת התמונה באמצעות curl חסין הכולל מעקב הפניות (-L), שימוש בעוגיות (-b) וכותרות דפדפן
+          curl -s -L -k \
+            -b cookies.txt \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" \
+            -H "Referer: https://www.canva.com/" \
+            "${{ github.event.inputs.image_url }}" \
+            -o downloaded_image.png
+
+          # 3. הפעלת סקריפט Python לפיצוח ל-Base64 ושליחה ל-Webhook
+          python3 - << 'EOF'
           import base64
           import json
+          import urllib.request
 
-          image_url = "${{ github.event.inputs.image_url }}"
           webhook_url = "${{ github.event.inputs.webhook_url }}"
           job_id = "${{ github.event.inputs.job_id }}"
-          cookies_b64 = "${{ github.event.inputs.cookies_b64 }}"
-
-          cookie_header = ""
-          if cookies_b64:
-              try:
-                  cookie_header = base64.b64decode(cookies_b64).decode('utf-8', errors='ignore')
-              except Exception as e:
-                  print(f"⚠️ שגיאה בפענוח עוגיות: {e}")
-
-          headers = {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-              'Accept-Language': 'en-US,en;q=0.9,he;q=0.8',
-              'Referer': 'https://www.canva.com/',
-              'Sec-Fetch-Dest': 'image',
-              'Sec-Fetch-Mode': 'no-cors',
-              'Sec-Fetch-Site': 'cross-site'
-          }
-          
-          if cookie_header:
-              headers['Cookie'] = cookie_header
 
           try:
-              req = urllib.request.Request(image_url, headers=headers)
-              with urllib.request.urlopen(req) as response:
-                  image_bytes = response.read()
-          except urllib.error.HTTPError as e:
-              print(f"❌ שגיאת HTTP בהורדת התמונה: {e.code} - {e.reason}")
-              print(f"תגובת השרת: {e.read().decode('utf-8', errors='ignore')}")
-              raise e
+              with open("downloaded_image.png", "rb") as f:
+                  image_bytes = f.read()
+              
+              if len(image_bytes) == 0:
+                  raise Exception("הקובץ שהורד ריק או שההורדה נכשלה.")
           except Exception as e:
-              print(f"❌ שגיאה כללית בהורדה: {e}")
+              print(f"❌ שגיאה בקריאת הקובץ שהורד: {e}")
               raise e
 
           base64_str = base64.b64encode(image_bytes).decode('utf-8')
@@ -81,7 +72,7 @@ jobs:
                   "data": part_data
               }).encode('utf-8')
               
-              req_send = urllib.request.Request(
+              req = urllib.request.Request(
                   webhook_url, 
                   data=payload, 
                   headers={
@@ -89,8 +80,10 @@ jobs:
                       'User-Agent': 'Mozilla/5.0'
                   }
               )
-              with urllib.request.urlopen(req_send) as resp:
+              with urllib.request.urlopen(req) as resp:
                   pass
 
           send_part(1, part1)
           send_part(2, part2)
+          print("✨ התמונה פוצלה ונשלחה בהצלחה!")
+          EOF

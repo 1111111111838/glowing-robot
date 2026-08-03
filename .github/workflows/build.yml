@@ -24,6 +24,7 @@ jobs:
         shell: python
         run: |
           import urllib.request
+          import urllib.error
           import base64
           import json
 
@@ -32,22 +33,37 @@ jobs:
           job_id = "${{ github.event.inputs.job_id }}"
           cookies_b64 = "${{ github.event.inputs.cookies_b64 }}"
 
-          # פענוח עוגיות הקנבה מתוך Base64 (אם קיימות)
           cookie_header = ""
           if cookies_b64:
-              cookie_header = base64.b64decode(cookies_b64).decode('utf-8')
+              try:
+                  cookie_header = base64.b64decode(cookies_b64).decode('utf-8', errors='ignore')
+              except Exception as e:
+                  print(f"⚠️ שגיאה בפענוח עוגיות: {e}")
 
-          # הכנת כותרות הבקשה להורדת התמונה כולל העוגיות
           headers = {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-              'Referer': 'https://www.canva.com/'
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9,he;q=0.8',
+              'Referer': 'https://www.canva.com/',
+              'Sec-Fetch-Dest': 'image',
+              'Sec-Fetch-Mode': 'no-cors',
+              'Sec-Fetch-Site': 'cross-site'
           }
+          
           if cookie_header:
               headers['Cookie'] = cookie_header
 
-          req = urllib.request.Request(image_url, headers=headers)
-          with urllib.request.urlopen(req) as response:
-              image_bytes = response.read()
+          try:
+              req = urllib.request.Request(image_url, headers=headers)
+              with urllib.request.urlopen(req) as response:
+                  image_bytes = response.read()
+          except urllib.error.HTTPError as e:
+              print(f"❌ שגיאת HTTP בהורדת התמונה: {e.code} - {e.reason}")
+              print(f"תגובת השרת: {e.read().decode('utf-8', errors='ignore')}")
+              raise e
+          except Exception as e:
+              print(f"❌ שגיאה כללית בהורדה: {e}")
+              raise e
 
           base64_str = base64.b64encode(image_bytes).decode('utf-8')
 

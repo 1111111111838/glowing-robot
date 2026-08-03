@@ -28,6 +28,7 @@ jobs:
           webhook_url = "${{ github.event.inputs.webhook_url }}"
           job_id = "${{ github.event.inputs.job_id }}"
 
+          # הורדת התמונה מהרשת
           req = urllib.request.Request(image_url, headers={'User-Agent': 'Mozilla/5.0'})
           with urllib.request.urlopen(req) as response:
               image_bytes = response.read()
@@ -48,10 +49,14 @@ jobs:
                   "data": part_data
               }).encode('utf-8')
               
+              # הוספת User-Agent מונעת את שגיאת 403 Forbidden מול ngrok
               req = urllib.request.Request(
                   webhook_url, 
                   data=payload, 
-                  headers={'Content-Type': 'application/json'}
+                  headers={
+                      'Content-Type': 'application/json',
+                      'User-Agent': 'Mozilla/5.0'
+                  }
               )
               with urllib.request.urlopen(req) as resp:
                   pass
